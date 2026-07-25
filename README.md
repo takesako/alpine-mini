@@ -53,6 +53,23 @@ $(brew --prefix e2fsprogs)/sbin/mkfs.ext4
 
 が自動生成されます。
 
+## 動作確認済みOS
+
+2026-07-25 に以下の環境で起動を確認しました。
+
+* ホスト: macOS 26.5.2 (arm64)
+* ゲスト: Alpine Linux v3.24 (x86_64)
+* ゲストカーネル: Linux 6.18.39-0-virt
+* QEMU: 11.0.1
+
+ゲスト内では以下のディスク構成を確認しました。
+
+* `/dev/vda`: ext4、`/` にマウント、3.9 GiB
+* `share`: 9P、`/mnt/share` にマウント
+* `/dev/vdb`: swap、1.0 GiB
+
+確認後はファイルシステムを同期して電源断し、QEMU が正常に終了することを確認しました。
+
 ## ホストとの共有
 
 ホスト側
@@ -81,4 +98,3 @@ share/
 ├── root.qcow2
 └── swap.qcow2
 ```
-

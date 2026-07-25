@@ -1,0 +1,11 @@
+/initramfs-root/
+/packages/
+/rootfs/
+/share/
+
+/initramfs.cpio.gz
+/overlay.qcow2
+/root.qcow2
+/root.squashfs
+/swap.qcow2
+/vmlinuz-virt

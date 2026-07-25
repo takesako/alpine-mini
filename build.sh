@@ -1,175 +1,315 @@
 #!/bin/sh
 set -eu
 
-R=https://dl-cdn.alpinelinux.org/alpine/v3.24
-A=x86_64 P=packages F=rootfs T=$(mktemp -d)
-trap 'rm -rf "$T"' EXIT
-mkdir -p "$P"
+REPOSITORY=https://dl-cdn.alpinelinux.org/alpine/v3.24
+ARCH=x86_64
+PACKAGES=packages
+INITRAMFS=initramfs-root
+ROOTFS=rootfs
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
 
-get(){
-  N=$(curl -fsSL "$R/main/$A/" | sed -n "s/.*href=\"\($1-[0-9][^\"]*\.apk\)\".*/\1/p" | sort -V | tail -1)
-  [ -f "$P/$1.apk" ] || curl -fL "$R/main/$A/$N" -o "$P/$1.apk"
-  mkdir -p "$T/$1"; tar -xf "$P/$1.apk" -C "$T/$1"
+for tool in curl cpio gzip mksquashfs zstd; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "required command not found: $tool" >&2
+    exit 1
+  }
+done
+
+mkdir -p "$PACKAGES"
+
+get()
+{
+  name=$1
+  filename=$(
+    curl -fsSL "$REPOSITORY/main/$ARCH/" |
+      sed -n "s/.*href=\"\\($name-[0-9][^\"]*\\.apk\\)\".*/\\1/p" |
+      sort -V |
+      tail -1
+  )
+  [ -n "$filename" ] || {
+    echo "package not found: $name" >&2
+    exit 1
+  }
+  archive=$PACKAGES/$filename
+  [ -f "$archive" ] ||
+    curl -fL "$REPOSITORY/main/$ARCH/$filename" -o "$archive"
+  mkdir -p "$TMP/$name"
+  tar -xf "$archive" -C "$TMP/$name"
 }
 
-for n in busybox-static apk-tools-static alpine-keys ca-certificates-bundle linux-virt
-do get "$n"; done
-
-rm -rf "$F"
-for d in bin sbin usr/bin usr/sbin usr/share/udhcpc etc/apk/keys etc/ssl/certs \
-  lib/apk/db var/lib/apk proc sys dev tmp run root newroot mnt/share
-do mkdir -p "$F/$d"; done
-
-cp "$T/busybox-static/bin/busybox.static" "$F/bin/busybox"
-cp "$T/apk-tools-static/sbin/apk.static" "$F/sbin/apk"
-chmod 755 "$F/bin/busybox" "$F/sbin/apk"
-
-for x in \
-  '[' '[[' acpid add-shell addgroup adduser adjtimex arch arp arping ash awk \
-  base64 basename bbconfig bc beep blkdiscard blkid blockdev brctl bunzip2 \
-  bzcat bzip2 cal cat chattr chgrp chmod chown chpasswd chroot chvt cksum \
-  clear cmp comm cp cpio crond crontab cryptpw cut date dc dd deallocvt \
-  delgroup deluser depmod df diff dirname dmesg dnsdomainname dos2unix du \
-  dumpkmap echo egrep eject env ether-wake expand expr factor fallocate \
-  false fatattr fbset fbsplash fdflush fdisk fgrep find findfs flock fold \
-  free fsck fstrim fsync fuser getopt getty grep groups gunzip gzip halt hd \
-  head hexdump hostid hostname hwclock id ifconfig ifdown ifenslave ifup init \
-  inotifyd insmod install ionice iostat ip ipaddr ipcalc ipcrm ipcs iplink \
-  ipneigh iproute iprule iptunnel kbd_mode kill killall killall5 klogd last \
-  less link linux32 linux64 ln loadfont loadkmap logger login logread losetup \
-  ls lsattr lsmod lsof lsusb lzcat lzma lzop lzopcat makemime md5sum mdev \
-  mesg microcom mkdir mkdosfs mkfifo mkfs.vfat mknod mkpasswd mkswap mktemp \
-  modinfo modprobe more mount mountpoint mpstat mv nameif nanddump nandwrite \
-  nbd-client nc netstat nice nl nmeter nohup nologin nproc nsenter nslookup \
-  ntpd od openvt partprobe passwd paste pgrep pidof ping ping6 pipe_progress \
-  pivot_root pkill pmap poweroff printenv printf ps pscan pstree pwd pwdx \
-  raidautorun rdate rdev readahead readlink realpath reboot reformime \
-  remove-shell renice reset resize rev rfkill rm rmdir rmmod route run-parts \
-  sed sendmail seq setconsole setfont setkeycodes setlogcons setpriv setserial \
-  setsid sh sha1sum sha256sum sha3sum sha512sum showkey shred shuf slattach \
-  sleep sort split ssl_client stat strings stty su sum swapoff swapon \
-  switch_root sync sysctl syslogd tac tail tar tee test time timeout top touch \
-  tr traceroute traceroute6 tree true truncate tty ttysize tunctl udhcpc \
-  udhcpc6 umount uname unexpand uniq unix2dos unlink unlzma unlzop unshare \
-  unxz unzip uptime usleep uudecode uuencode vconfig vi vlock volname watch \
-  watchdog wc wget which who whoami whois xargs xxd xzcat yes zcat zcip
-do
-  ln -sf /bin/busybox "$F/bin/$x"
+for name in busybox-static linux-virt; do
+  get "$name"
 done
 
-for x in \
-  acpid add-shell addgroup adduser adjtimex arp arping blkdiscard blkid \
-  blockdev brctl chpasswd chroot crond cryptpw deallocvt delgroup deluser \
-  depmod fdflush fdisk findfs fsck fstrim getty halt hwclock ifconfig ifdown \
-  ifenslave ifup insmod ip klogd loadfont loadkmap logread losetup lsmod \
-  mdev mkdosfs mkfs.vfat mknod mkpasswd mkswap modinfo modprobe mount \
-  nameif nanddump nandwrite nbd-client partprobe pivot_root poweroff rdate \
-  rdev readahead reboot remove-shell rfkill rmmod route setconsole setfont \
-  setkeycodes setlogcons setserial slattach swapoff swapon switch_root sysctl \
-  syslogd tunctl udhcpc udhcpc6 umount vconfig watchdog zcip
-do
-  ln -sf /bin/busybox "$F/sbin/$x"
+for repository in main community; do
+  curl -fsSL "$REPOSITORY/$repository/$ARCH/APKINDEX.tar.gz" |
+    tar -xzOf - APKINDEX >"$TMP/APKINDEX.$repository"
 done
 
-cp "$T/alpine-keys/etc/apk/keys/"* "$F/etc/apk/keys/"
-cp "$T/ca-certificates-bundle/etc/ssl/certs/ca-certificates.crt" "$F/etc/ssl/certs/"
-ln -sf certs/ca-certificates.crt "$F/etc/ssl/cert.pem"
+install_order=$TMP/install-order
+roots='alpine-base alpine-keys ca-certificates bash curl git openssh-client-default nano less coreutils findutils grep sed tar gzip xz python3'
 
-L=$T/linux-virt
-K=$(basename "$(find "$L/lib/modules" -mindepth 1 -maxdepth 1 -type d)")
-M=$L/lib/modules/$K E=$F/etc/modules D=$T/done
-cp "$L/boot/vmlinuz-virt" vmlinuz-virt
-: >"$E"; : >"$D"
+awk -v roots="$roots" '
+  BEGIN { RS = ""; FS = "\n" }
+  {
+    package = version = dependencies = provides = ""
+    repository = FILENAME ~ /community$/ ? "community" : "main"
+    for (line = 1; line <= NF; line++) {
+      if ($line ~ /^P:/) package = substr($line, 3)
+      if ($line ~ /^V:/) version = substr($line, 3)
+      if ($line ~ /^D:/) dependencies = substr($line, 3)
+      if ($line ~ /^p:/) provides = provides " " substr($line, 3)
+    }
+    package_repository[package] = repository
+    package_version[package] = version
+    package_dependencies[package] = dependencies
+    count = split(provides, provided, /[[:space:]]+/)
+    for (item = 1; item <= count; item++) {
+      sub(/=.*/, "", provided[item])
+      if (provided[item] != "" && !(provided[item] in provider))
+        provider[provided[item]] = package
+    }
+  }
+  function resolve(dependency, package, count, children, item) {
+    if (dependency ~ /^!/) return
+    if (dependency == "/bin/sh") dependency = "cmd:sh"
+    sub(/[<>=~].*/, "", dependency)
+    if (dependency == "") return
+    package = dependency
+    if (!(package in package_version)) package = provider[dependency]
+    if (package == "") {
+      print "dependency not found: " dependency >"/dev/stderr"
+      failed = 1
+      return
+    }
+    if (seen[package]++) return
+    print package_repository[package] "|" package "|" package_version[package]
+    count = split(package_dependencies[package], children, /[[:space:]]+/)
+    for (item = 1; item <= count; item++) resolve(children[item])
+  }
+  END {
+    count = split(roots, root, /[[:space:]]+/)
+    for (item = 1; item <= count; item++) resolve(root[item])
+    if (failed) exit 1
+  }
+' "$TMP/APKINDEX.main" "$TMP/APKINDEX.community" >"$install_order"
 
-mod()
+rm -rf "$INITRAMFS" "$ROOTFS"
+
+# The initramfs contains only BusyBox, boot-critical kernel modules, /init,
+# and the empty directories needed before switch_root.
+for dir in bin dev lower newroot overlay proc run sys; do
+  mkdir -p "$INITRAMFS/$dir"
+done
+cp "$TMP/busybox-static/bin/busybox.static" "$INITRAMFS/bin/busybox"
+chmod 755 "$INITRAMFS/bin/busybox"
+
+# The complete mutable-looking Alpine userland lives in the read-only
+# SquashFS lower layer. Runtime changes are redirected to overlay.qcow2.
+for dir in \
+  bin sbin usr/bin usr/sbin usr/share/udhcpc etc/apk/keys etc/ssl/certs \
+  lib/apk/db var/cache/apk var/lib/apk proc sys dev tmp run root mnt/share
+do
+  mkdir -p "$ROOTFS/$dir"
+done
+
+while IFS='|' read -r repository package version; do
+  filename=$package-$version.apk
+  archive=$PACKAGES/$filename
+  [ -f "$archive" ] ||
+    curl -fL "$REPOSITORY/$repository/$ARCH/$filename" -o "$archive"
+  tar -tf "$archive" | awk '$0 !~ /^\./' >"$TMP/files"
+  tar -xf "$archive" -C "$ROOTFS" -T "$TMP/files"
+done <"$install_order"
+
+find "$ROOTFS" -maxdepth 1 -type f -name '.*' -delete
+[ ! -e "$ROOTFS/bin/bbsuid" ] || chmod 4755 "$ROOTFS/bin/bbsuid"
+cut -d '|' -f 2- "$install_order" >"$ROOTFS/etc/alpine-mini-packages"
+
+while read -r applet; do
+  [ -n "$applet" ] || continue
+  [ -e "$ROOTFS/$applet" ] || [ -L "$ROOTFS/$applet" ] ||
+    ln -s /bin/busybox "$ROOTFS/$applet"
+done <"$ROOTFS/etc/busybox-paths.d/busybox"
+
+linux=$TMP/linux-virt
+kernel_version=$(basename "$(find "$linux/lib/modules" -mindepth 1 -maxdepth 1 -type d)")
+modules=$linux/lib/modules/$kernel_version
+module_list=$TMP/modules
+module_done=$TMP/modules.done
+cp "$linux/boot/vmlinuz-virt" vmlinuz-virt
+: >"$module_list"
+: >"$module_done"
+
+copy_module()
 (
-  X=$1
-  grep -qxF "$X" "$D" && exit
-  echo "$X" >>"$D"
-  for Y in $(sed -n "s|^$X: ||p" "$M/modules.dep"); do mod "$Y"; done
-  S=$M/$X Q=/lib/modules/$K/${X%.gz}; Q=${Q%.zst}
-  mkdir -p "$F/${Q%/*}"
-  case "$S" in
-    *.gz) gzip -dc "$S" >"$F$Q";;
-    *.zst) zstd -q -dc "$S" >"$F$Q";;
-    *) cp "$S" "$F$Q";;
+  module=$1
+  grep -qxF "$module" "$module_done" && exit
+  echo "$module" >>"$module_done"
+  for dependency in $(sed -n "s|^$module: ||p" "$modules/modules.dep"); do
+    copy_module "$dependency"
+  done
+  source=$modules/$module
+  target=/lib/modules/$kernel_version/${module%.gz}
+  target=${target%.zst}
+  mkdir -p "$INITRAMFS/${target%/*}"
+  case "$source" in
+    *.gz) gzip -dc "$source" >"$INITRAMFS$target" ;;
+    *.zst) zstd -q -dc "$source" >"$INITRAMFS$target" ;;
+    *) cp "$source" "$INITRAMFS$target" ;;
   esac
-  echo "$Q" >>"$E"
+  echo "$target" >>"$module_list"
 )
 
-for n in virtio_net virtio-rng af_packet virtio_blk ext4 \
+for name in \
+  virtio_net virtio-rng af_packet virtio_blk ext4 squashfs overlay \
   9p 9pnet 9pnet_virtio \
-  xhci-hcd xhci-pci usbcore usb-common \
-  hid usbhid hid-generic
+  xhci-hcd xhci-pci usbcore usb-common hid usbhid hid-generic
 do
-  X=$(find "$M" -type f \( -name "$n.ko" -o -name "$n.ko.gz" -o -name "$n.ko.zst" \) | head -1)
-  [ -n "$X" ] || { echo "module not found: $n"; exit 1; }
-  mod "${X#"$M/"}"
+  module=$(
+    find "$modules" -type f \
+      \( -name "$name.ko" -o -name "$name.ko.gz" -o -name "$name.ko.zst" \) |
+      head -1
+  )
+  [ -n "$module" ] || {
+    echo "module not found: $name" >&2
+    exit 1
+  }
+  copy_module "${module#"$modules/"}"
 done
 
-awk '!a[$0]++' "$E" >"$E.tmp"; mv "$E.tmp" "$E"
+awk '!seen[$0]++' "$module_list" >"$module_list.unique"
 
-cat >"$F/etc/apk/repositories" <<EOF
-$R/main
-$R/community
+cat >"$INITRAMFS/init" <<'EOF'
+#!/bin/busybox sh
+BB=/bin/busybox
+export PATH=/bin
+
+fail()
+{
+  echo "initramfs: $*" >/dev/console
+  exec $BB sh </dev/console >/dev/console 2>&1
+}
+
+$BB mount -t proc proc /proc || fail "cannot mount proc"
+$BB mount -t sysfs sysfs /sys || fail "cannot mount sysfs"
+$BB mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 EOF
 
-cat >"$F/usr/share/udhcpc/default.script" <<'EOF'
+while read -r module; do
+  printf '$BB insmod "%s" || fail "cannot load %s"\n' "$module" "$module" \
+    >>"$INITRAMFS/init"
+done <"$module_list.unique"
+
+cat >>"$INITRAMFS/init" <<'EOF'
+
+$BB mount -t squashfs -o ro /dev/vda /lower ||
+  fail "cannot mount root.squashfs"
+$BB mount -t ext4 -o noatime,nodiratime /dev/vdb /overlay ||
+  fail "cannot mount overlay.qcow2"
+$BB mkdir -p /overlay/upper /overlay/work
+$BB mount -t overlay overlay \
+  -o lowerdir=/lower,upperdir=/overlay/upper,workdir=/overlay/work /newroot ||
+  fail "cannot mount overlay root"
+
+for directory in proc sys dev; do
+  $BB mount --move "/$directory" "/newroot/$directory" ||
+    fail "cannot move $directory"
+done
+
+exec $BB switch_root /newroot /sbin/boot
+EOF
+
+cat >"$ROOTFS/etc/apk/repositories" <<EOF
+$REPOSITORY/main
+$REPOSITORY/community
+EOF
+
+cat >"$ROOTFS/usr/share/udhcpc/default.script" <<'EOF'
 #!/bin/sh
 case "$1" in
-  deconfig) ip addr flush dev "$interface";;
+  deconfig)
+    ip addr flush dev "$interface"
+    ;;
   bound|renew)
     ip addr flush dev "$interface"
     ip addr add "$ip/24" dev "$interface"
     ip route del default 2>/dev/null || true
     ip route add default via "${router%% *}" dev "$interface"
     : >/etc/resolv.conf
-    for x in $dns; do echo "nameserver $x" >>/etc/resolv.conf; done
+    for server in $dns; do
+      echo "nameserver $server" >>/etc/resolv.conf
+    done
+    ;;
 esac
 EOF
 
-echo 'root:x:0:0:root:/root:/bin/sh' >"$F/etc/passwd"
-echo 'root:x:0:' >"$F/etc/group"
-echo alpine >"$F/etc/hostname"
-echo 'nameserver 10.0.2.3' >"$F/etc/resolv.conf"
-: >"$F/lib/apk/db/installed"
+echo alpine >"$ROOTFS/etc/hostname"
+echo 'nameserver 10.0.2.3' >"$ROOTFS/etc/resolv.conf"
+: >"$ROOTFS/lib/apk/db/installed"
 
-cat >"$F/init" <<'EOF'
+cat >"$ROOTFS/sbin/boot" <<'EOF'
 #!/bin/sh
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
-while read -r m; do insmod "$m" || exec sh </dev/console >/dev/console 2>&1; done </etc/modules
-mount -t ext4 -o noatime,nodiratime /dev/vda /newroot ||
-  exec sh </dev/console >/dev/console 2>&1
-[ -e /newroot/sbin/boot ] || cp -a /bin /sbin /usr /etc /lib /root /var /newroot/
-for d in proc sys dev tmp run mnt/share; do mkdir -p "/newroot/$d"; done
-mount --move /proc /newroot/proc
-mount --move /sys /newroot/sys
-mount --move /dev /newroot/dev
-exec switch_root /newroot /sbin/boot
-EOF
 
-cat >"$F/sbin/boot" <<'EOF'
-#!/bin/sh
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 hostname alpine
+mount -t tmpfs tmpfs /run
+mount -t tmpfs tmpfs /tmp
 ip link set lo up
 ip link set eth0 up
 udhcpc -i eth0 -s /usr/share/udhcpc/default.script
+
 mkdir -p /mnt/share
 mount -t 9p -o trans=virtio,version=9p2000.L,cache=loose share /mnt/share ||
   echo "share mount failed"
-if [ -b /dev/vdb ]; then
-  swapon /dev/vdb 2>/dev/null || {
-    mkswap /dev/vdb
-    swapon /dev/vdb
+
+if [ -b /dev/vdc ]; then
+  swapon /dev/vdc 2>/dev/null || {
+    mkswap /dev/vdc
+    swapon /dev/vdc
   }
 fi
+
 exec setsid sh -c 'exec sh </dev/ttyS0 >/dev/ttyS0 2>&1'
 EOF
 
-chmod 755 "$F/init" "$F/sbin/boot" "$F/usr/share/udhcpc/default.script"
-(cd "$F"; find . | cpio -o -H newc -R 0:0 2>/dev/null | gzip -9) >initramfs.cpio.gz
-ls -lh vmlinuz-virt initramfs.cpio.gz
+rm -f "$ROOTFS/sbin/poweroff" "$ROOTFS/sbin/reboot" "$ROOTFS/sbin/halt"
+
+cat >"$ROOTFS/sbin/poweroff" <<'EOF'
+#!/bin/sh
+sync
+exec /bin/busybox poweroff -f
+EOF
+
+cat >"$ROOTFS/sbin/reboot" <<'EOF'
+#!/bin/sh
+sync
+exec /bin/busybox reboot -f
+EOF
+
+cat >"$ROOTFS/sbin/halt" <<'EOF'
+#!/bin/sh
+sync
+exec /bin/busybox halt -f
+EOF
+
+chmod 755 \
+  "$INITRAMFS/init" \
+  "$ROOTFS/sbin/boot" \
+  "$ROOTFS/sbin/poweroff" \
+  "$ROOTFS/sbin/reboot" \
+  "$ROOTFS/sbin/halt" \
+  "$ROOTFS/usr/share/udhcpc/default.script"
+
+mksquashfs "$ROOTFS" root.squashfs \
+  -noappend -all-root -no-xattrs -comp zstd -Xcompression-level 15 -quiet
+
+(
+  cd "$INITRAMFS"
+  find . -print |
+    cpio -o -H newc -R 0:0 2>/dev/null |
+    gzip -9
+) >initramfs.cpio.gz
+
+ls -lh vmlinuz-virt initramfs.cpio.gz root.squashfs

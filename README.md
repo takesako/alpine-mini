@@ -27,6 +27,8 @@ brew install qemu e2fsprogs zstd cpio
 
 `mkfs.ext4` が PATH に存在することを確認してください。
 
+$(brew --prefix e2fsprogs)/sbin/mkfs.ext4
+
 ## ビルド
 
 ```sh

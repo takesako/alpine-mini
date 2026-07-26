@@ -1,6 +1,6 @@
 # alpine-mini
 A tiny Alpine Linux environment for QEMU with a minimal initramfs, a
-read-only SquashFS userland, a persistent OverlayFS, and 9P sharing.
+read-only SquashFS userland, a persistent OverlayFS, and VVFAT sharing.
 
 最小構成の Alpine Linux を QEMU 上で起動するためのスクリプトです。
 
@@ -13,10 +13,11 @@ read-only SquashFS userland, a persistent OverlayFS, and 9P sharing.
 * Alpine Linux ベース
 * BusyBox、カーネルモジュール、`/init` のみの最小 initramfs
 * Alpine ユーザーランドを圧縮した読み取り専用 `root.squashfs`
+* `/lib/apk/db` を収録し、OverlayFS 上で `apk add` に対応
 * OverlayFS によるルートファイルシステム
 * `overlay.qcow2` に変更内容を永続保存
 * swap.qcow2 にスワップ領域
-* 9P によるホストとのフォルダー共有
+* VVFAT によるホストとのフォルダー同期
 * DHCP によるネットワーク設定
 
 ## イメージ構成
@@ -24,7 +25,7 @@ read-only SquashFS userland, a persistent OverlayFS, and 9P sharing.
 | イメージ | 役割 | 参考サイズ |
 | --- | --- | ---: |
 | `initramfs.cpio.gz` | BusyBox、起動用モジュール、`/init` | 約 2.4 MiB |
-| `root.squashfs` | Alpine ユーザーランドの読み取り専用 lower layer | 約 22 MiB |
+| `root.squashfs` | 最小 Alpine ユーザーランドの読み取り専用 lower layer | 約 3.6 MiB |
 | `overlay.qcow2` | OverlayFS の書き込み可能な upper/work layer | 初回作成時は約 1 MiB |
 
 `root.squashfs` を再ビルドしても `overlay.qcow2` は維持されるため、
@@ -91,23 +92,23 @@ SSH_PORT=2222 USB_PASSTHROUGH=1 ./run.sh
 * `/dev/vda`: SquashFS、読み取り専用 lower layer
 * `/dev/vdb`: ext4、OverlayFS の upper/work layer、4.0 GiB
 * `overlay`: `/` にマウント
-* `share`: 9P、`/mnt/share` にマウント
 * `/dev/vdc`: swap、1.0 GiB
+* `/dev/vdd1`: vfat、`/vfat` に `rw,sync,dirsync` でマウント
 
 確認後はファイルシステムを同期して電源断し、QEMU が正常に終了することを確認しました。
 
-## ホストとの共有
+## ホストとの同期
 
 ホスト側
 
 ```
-share/
+vfat/
 ```
 
 ゲスト側
 
 ```
-/mnt/share
+/vfat
 ```
 
 ## ディレクトリ構成
@@ -116,13 +117,15 @@ share/
 .
 ├── build.sh
 ├── run.sh
-├── packages/
-├── initramfs-root/
-├── rootfs/
-├── share/
-├── initramfs.cpio.gz
-├── vmlinuz-virt
-├── root.squashfs
-├── overlay.qcow2
-└── swap.qcow2
+├── img/
+│   ├── initramfs.cpio.gz
+│   ├── overlay.qcow2
+│   ├── root.squashfs
+│   ├── swap.qcow2
+│   └── vmlinuz-virt
+├── tmp/
+│   ├── initramfs-root/
+│   ├── packages/
+│   └── rootfs/
+└── vfat/
 ```

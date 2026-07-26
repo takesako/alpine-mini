@@ -110,7 +110,7 @@ chmod 755 "$INITRAMFS/bin/busybox"
 # SquashFS lower layer. Runtime changes are redirected to overlay.qcow2.
 for dir in \
   bin sbin usr/bin usr/sbin usr/share/udhcpc etc/apk/keys etc/ssl/certs \
-  lib/apk/db var/cache/apk var/lib/apk proc sys dev tmp run root mnt/share
+  lib/apk/db var/cache/apk var/lib/apk proc sys dev tmp run root vfat
 do
   mkdir -p "$ROOTFS/$dir"
 done
@@ -124,9 +124,40 @@ while IFS='|' read -r repository package version; do
   tar -xf "$archive" -C "$ROOTFS" -T "$TMP/files"
 done <"$install_order"
 
+release_package_version=$(
+  awk -F '|' '$2 == "alpine-release" { print $3; exit }' "$install_order"
+)
+release_version=${release_package_version%-r*}
+minirootfs=alpine-minirootfs-$release_version-$ARCH.tar.gz
+minirootfs_archive=$PACKAGES/$minirootfs
+[ -f "$minirootfs_archive" ] ||
+  curl -fL \
+    "$REPOSITORY/releases/$ARCH/$minirootfs" \
+    -o "$minirootfs_archive"
+
+rm -rf "$ROOTFS/lib/apk/db"
+tar -xzf "$minirootfs_archive" -C "$ROOTFS" ./lib/apk/db
+
+while IFS='|' read -r repository package version; do
+  grep -qxF "P:$package" "$ROOTFS/lib/apk/db/installed" && continue
+  awk -v package="$package" '
+    BEGIN { RS = ""; FS = "\n" }
+    {
+      for (line = 1; line <= NF; line++) {
+        if ($line == "P:" package) {
+          print $0 "\n"
+          exit
+        }
+      }
+    }
+  ' "$TMP/APKINDEX.$repository" >>"$ROOTFS/lib/apk/db/installed"
+done <"$install_order"
+
 find "$ROOTFS" -maxdepth 1 -type f -name '.*' -delete
 [ ! -e "$ROOTFS/bin/bbsuid" ] || chmod 4755 "$ROOTFS/bin/bbsuid"
 cut -d '|' -f 2- "$install_order" >"$ROOTFS/etc/alpine-mini-packages"
+printf '%s\n' $roots >"$ROOTFS/etc/apk/world"
+echo "$ARCH" >"$ROOTFS/etc/apk/arch"
 
 while read -r applet; do
   [ -n "$applet" ] || continue
@@ -165,7 +196,7 @@ copy_module()
 
 for name in \
   virtio_net virtio-rng af_packet virtio_blk ext4 squashfs overlay \
-  9p 9pnet 9pnet_virtio fat vfat nls_cp437 nls_utf8 \
+  fat vfat nls_cp437 nls_utf8 \
   xhci-hcd xhci-pci usbcore usb-common hid usbhid hid-generic
 do
   module=$(
@@ -248,7 +279,6 @@ EOF
 
 echo alpine >"$ROOTFS/etc/hostname"
 echo 'nameserver 10.0.2.3' >"$ROOTFS/etc/resolv.conf"
-: >"$ROOTFS/lib/apk/db/installed"
 
 cat >"$ROOTFS/sbin/boot" <<'EOF'
 #!/bin/sh
@@ -261,9 +291,9 @@ ip link set lo up
 ip link set eth0 up
 udhcpc -i eth0 -s /usr/share/udhcpc/default.script
 
-mkdir -p /mnt/share
-mount -t 9p -o trans=virtio,version=9p2000.L,cache=loose share /mnt/share ||
-  echo "share mount failed"
+mkdir -p /vfat
+mount -t vfat -o rw,sync,dirsync /dev/vdd1 /vfat ||
+  echo "vfat mount failed"
 
 if [ -b /dev/vdc ]; then
   swapon /dev/vdc 2>/dev/null || {

@@ -32,7 +32,7 @@ fi
   exit 1
 }
 
-mkdir -p "$IMAGES" share
+mkdir -p "$IMAGES" vfat
 
 if [ ! -f "$OVERLAY" ]; then
   overlay_raw=$(mktemp "${TMPDIR:-/tmp}/alpine-overlay.XXXXXX")
@@ -61,13 +61,11 @@ qemu-system-x86_64 \
   -drive file="$ROOTFS",if=virtio,format=raw,readonly=on \
   -drive file="$OVERLAY",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
   -drive file="$SWAP",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
-  -drive file=fat:rw:share,format=raw,if=virtio \
+  -drive file=fat:rw:vfat,format=raw,if=virtio \
   -netdev user,id=n0 \
   -device virtio-net-pci,netdev=n0 \
   -object rng-random,filename=/dev/urandom,id=rng0 \
   -device virtio-rng-pci,rng=rng0 \
-  -fsdev local,id=share,path=.,security_model=none \
-  -device virtio-9p-pci,fsdev=share,mount_tag=share \
   -device qemu-xhci,id=xhci \
   -device usb-host,bus=xhci.0,vendorid=0x16d0,productid=0x0753 \
   -device usb-host,bus=xhci.0,vendorid=0x04b4,productid=0x8613 \

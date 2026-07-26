@@ -30,30 +30,22 @@ mkdir -p share
 if [ ! -f overlay.qcow2 ]; then
   overlay_raw=$(mktemp "${TMPDIR:-/tmp}/alpine-overlay.XXXXXX")
   trap 'rm -f "$overlay_raw"' EXIT HUP INT TERM
-  truncate -s "${OVERLAY_SIZE:-4G}" "$overlay_raw"
+  truncate -s "${OVERLAY_SIZE:-20G}" "$overlay_raw"
   "$mkfs_ext4" -q -F \
-    -O ^has_journal,^metadata_csum_seed,^orphan_file,^64bit \
+    -O ^has_journal,^resize_inode,^dir_index,^metadata_csum_seed,^orphan_file,^64bit \
     -m 0 \
-    -E lazy_itable_init=1 \
+    -E lazy_itable_init=1,nodiscard \
     "$overlay_raw"
-  qemu-img convert -f raw -O qcow2 -c "$overlay_raw" overlay.qcow2
+  qemu-img convert -f raw -O qcow2 -o cluster_size=64k,lazy_refcounts=on "$overlay_raw" overlay.qcow2
   rm -f "$overlay_raw"
   trap - EXIT HUP INT TERM
 fi
 
 [ -f swap.qcow2 ] ||
-  qemu-img create -q -f qcow2 swap.qcow2 "${SWAP_SIZE:-1G}"
+  qemu-img create -q -f qcow2 swap.qcow2 "${SWAP_SIZE:-2G}"
 
-ssh_port=${SSH_PORT-}
-if [ -n "$ssh_port" ]; then
-  netdev="user,id=n0,hostfwd=tcp::$ssh_port-:22"
-else
-  netdev=user,id=n0
-fi
-
-set -- \
-  qemu-system-x86_64 \
-  -m "${MEMORY:-256M}" \
+qemu-system-x86_64 \
+  -m 256 \
   -kernel vmlinuz-virt \
   -initrd initramfs.cpio.gz \
   -append "console=ttyS0 quiet" \
@@ -62,19 +54,15 @@ set -- \
   -drive file=root.squashfs,if=virtio,format=raw,readonly=on \
   -drive file=overlay.qcow2,if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
   -drive file=swap.qcow2,if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
-  -netdev "$netdev" \
+  -drive file=fat:rw:share,format=raw,if=virtio \
+  -netdev user,id=n0 \
   -device virtio-net-pci,netdev=n0 \
   -object rng-random,filename=/dev/urandom,id=rng0 \
   -device virtio-rng-pci,rng=rng0 \
-  -fsdev local,id=share,path=share,security_model=none \
-  -device virtio-9p-pci,fsdev=share,mount_tag=share
+  -fsdev local,id=share,path=.,security_model=none \
+  -device virtio-9p-pci,fsdev=share,mount_tag=share \
+  -device qemu-xhci,id=xhci \
+  -device usb-host,bus=xhci.0,vendorid=0x16d0,productid=0x0753 \
+  -device usb-host,bus=xhci.0,vendorid=0x04b4,productid=0x8613 \
+  -device usb-host,bus=xhci.0,vendorid=0xf055,productid=0x0002
 
-if [ "${USB_PASSTHROUGH:-0}" = 1 ]; then
-  set -- "$@" \
-    -device qemu-xhci,id=xhci \
-    -device usb-host,bus=xhci.0,vendorid=0x16d0,productid=0x0753 \
-    -device usb-host,bus=xhci.0,vendorid=0x04b4,productid=0x8613 \
-    -device usb-host,bus=xhci.0,vendorid=0xf055,productid=0x0002
-fi
-
-exec "$@"

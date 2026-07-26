@@ -48,7 +48,7 @@ for repository in main community; do
 done
 
 install_order=$TMP/install-order
-roots='alpine-base alpine-keys ca-certificates bash curl git openssh-client-default nano less coreutils findutils grep sed tar gzip xz python3'
+roots='alpine-base alpine-keys ca-certificates'
 
 awk -v roots="$roots" '
   BEGIN { RS = ""; FS = "\n" }
@@ -164,7 +164,7 @@ copy_module()
 
 for name in \
   virtio_net virtio-rng af_packet virtio_blk ext4 squashfs overlay \
-  9p 9pnet 9pnet_virtio \
+  9p 9pnet 9pnet_virtio fat vfat nls_cp437 nls_utf8 \
   xhci-hcd xhci-pci usbcore usb-common hid usbhid hid-generic
 do
   module=$(

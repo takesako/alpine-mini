@@ -3,9 +3,10 @@ set -eu
 
 REPOSITORY=https://dl-cdn.alpinelinux.org/alpine/v3.24
 ARCH=x86_64
-PACKAGES=packages
-INITRAMFS=initramfs-root
-ROOTFS=rootfs
+IMAGES=img
+PACKAGES=tmp/packages
+INITRAMFS=tmp/initramfs-root
+ROOTFS=tmp/rootfs
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -16,7 +17,7 @@ for tool in curl cpio gzip mksquashfs zstd; do
   }
 done
 
-mkdir -p "$PACKAGES"
+mkdir -p "$IMAGES" "$PACKAGES"
 
 get()
 {
@@ -138,7 +139,7 @@ kernel_version=$(basename "$(find "$linux/lib/modules" -mindepth 1 -maxdepth 1 -
 modules=$linux/lib/modules/$kernel_version
 module_list=$TMP/modules
 module_done=$TMP/modules.done
-cp "$linux/boot/vmlinuz-virt" vmlinuz-virt
+cp "$linux/boot/vmlinuz-virt" "$IMAGES/vmlinuz-virt"
 : >"$module_list"
 : >"$module_done"
 
@@ -302,7 +303,7 @@ chmod 755 \
   "$ROOTFS/sbin/halt" \
   "$ROOTFS/usr/share/udhcpc/default.script"
 
-mksquashfs "$ROOTFS" root.squashfs \
+mksquashfs "$ROOTFS" "$IMAGES/root.squashfs" \
   -noappend -all-root -no-xattrs -comp zstd -Xcompression-level 15 -quiet
 
 (
@@ -310,6 +311,9 @@ mksquashfs "$ROOTFS" root.squashfs \
   find . -print |
     cpio -o -H newc -R 0:0 2>/dev/null |
     gzip -9
-) >initramfs.cpio.gz
+) >"$IMAGES/initramfs.cpio.gz"
 
-ls -lh vmlinuz-virt initramfs.cpio.gz root.squashfs
+ls -lh \
+  "$IMAGES/vmlinuz-virt" \
+  "$IMAGES/initramfs.cpio.gz" \
+  "$IMAGES/root.squashfs"

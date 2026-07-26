@@ -1,7 +1,14 @@
 #!/bin/sh
 set -eu
 
-for file in vmlinuz-virt initramfs.cpio.gz root.squashfs; do
+IMAGES=img
+KERNEL=$IMAGES/vmlinuz-virt
+INITRAMFS=$IMAGES/initramfs.cpio.gz
+ROOTFS=$IMAGES/root.squashfs
+OVERLAY=$IMAGES/overlay.qcow2
+SWAP=$IMAGES/swap.qcow2
+
+for file in "$KERNEL" "$INITRAMFS" "$ROOTFS"; do
   [ -f "$file" ] || {
     echo "missing $file; run: sh build.sh" >&2
     exit 1
@@ -25,9 +32,9 @@ fi
   exit 1
 }
 
-mkdir -p share
+mkdir -p "$IMAGES" share
 
-if [ ! -f overlay.qcow2 ]; then
+if [ ! -f "$OVERLAY" ]; then
   overlay_raw=$(mktemp "${TMPDIR:-/tmp}/alpine-overlay.XXXXXX")
   trap 'rm -f "$overlay_raw"' EXIT HUP INT TERM
   truncate -s "${OVERLAY_SIZE:-20G}" "$overlay_raw"
@@ -36,24 +43,24 @@ if [ ! -f overlay.qcow2 ]; then
     -m 0 \
     -E lazy_itable_init=1,nodiscard \
     "$overlay_raw"
-  qemu-img convert -f raw -O qcow2 -o cluster_size=64k,lazy_refcounts=on "$overlay_raw" overlay.qcow2
+  qemu-img convert -f raw -O qcow2 -o cluster_size=64k,lazy_refcounts=on "$overlay_raw" "$OVERLAY"
   rm -f "$overlay_raw"
   trap - EXIT HUP INT TERM
 fi
 
-[ -f swap.qcow2 ] ||
-  qemu-img create -q -f qcow2 swap.qcow2 "${SWAP_SIZE:-2G}"
+[ -f "$SWAP" ] ||
+  qemu-img create -q -f qcow2 "$SWAP" "${SWAP_SIZE:-2G}"
 
 qemu-system-x86_64 \
   -m 256 \
-  -kernel vmlinuz-virt \
-  -initrd initramfs.cpio.gz \
+  -kernel "$KERNEL" \
+  -initrd "$INITRAMFS" \
   -append "console=ttyS0 quiet" \
   -nographic \
   -no-reboot \
-  -drive file=root.squashfs,if=virtio,format=raw,readonly=on \
-  -drive file=overlay.qcow2,if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
-  -drive file=swap.qcow2,if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
+  -drive file="$ROOTFS",if=virtio,format=raw,readonly=on \
+  -drive file="$OVERLAY",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
+  -drive file="$SWAP",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
   -drive file=fat:rw:share,format=raw,if=virtio \
   -netdev user,id=n0 \
   -device virtio-net-pci,netdev=n0 \
@@ -65,4 +72,3 @@ qemu-system-x86_64 \
   -device usb-host,bus=xhci.0,vendorid=0x16d0,productid=0x0753 \
   -device usb-host,bus=xhci.0,vendorid=0x04b4,productid=0x8613 \
   -device usb-host,bus=xhci.0,vendorid=0xf055,productid=0x0002
-

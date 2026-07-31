@@ -49,7 +49,7 @@ for repository in main community; do
 done
 
 install_order=$TMP/install-order
-roots='alpine-base alpine-keys ca-certificates'
+roots='alpine-base alpine-keys ssl_client ca-certificates doas'
 
 awk -v roots="$roots" '
   BEGIN { RS = ""; FS = "\n" }
@@ -100,7 +100,7 @@ rm -rf "$INITRAMFS" "$ROOTFS"
 
 # The initramfs contains only BusyBox, boot-critical kernel modules, /init,
 # and the empty directories needed before switch_root.
-for dir in bin dev lower newroot overlay proc run sys; do
+for dir in bin dev newroot overlay proc run sys; do
   mkdir -p "$INITRAMFS/$dir"
 done
 cp "$TMP/busybox-static/bin/busybox.static" "$INITRAMFS/bin/busybox"
@@ -155,6 +155,7 @@ done <"$install_order"
 
 find "$ROOTFS" -maxdepth 1 -type f -name '.*' -delete
 [ ! -e "$ROOTFS/bin/bbsuid" ] || chmod 4755 "$ROOTFS/bin/bbsuid"
+[ ! -e "$ROOTFS/usr/bin/doas" ] || chmod 4755 "$ROOTFS/usr/bin/doas"
 cut -d '|' -f 2- "$install_order" >"$ROOTFS/etc/alpine-mini-packages"
 printf '%s\n' $roots >"$ROOTFS/etc/apk/world"
 echo "$ARCH" >"$ROOTFS/etc/apk/arch"
@@ -164,6 +165,17 @@ while read -r applet; do
   [ -e "$ROOTFS/$applet" ] || [ -L "$ROOTFS/$applet" ] ||
     ln -s /bin/busybox "$ROOTFS/$applet"
 done <"$ROOTFS/etc/busybox-paths.d/busybox"
+
+# Create the regular user and allow wheel members to use doas without a password.
+mkdir -p "$ROOTFS/etc/doas.d" "$ROOTFS/home/user"
+echo 'permit nopass :wheel' >"$ROOTFS/etc/doas.d/wheel.conf"
+chmod 600 "$ROOTFS/etc/doas.d/wheel.conf"
+echo 'user:x:1000:100::/home/user:/bin/sh' >>"$ROOTFS/etc/passwd"
+echo 'user:$6$WcQlkbULYKUjvmhj$YSOvzqOF9ZbpdQcKl24kWAwrEqIeFjNOgkM6LKj0O1G4iMGI9Dnx2tLoye1hOmjy82ORmRsXmEN0DuPvKOYYJ1:20665:0:99999:7:::' >>"$ROOTFS/etc/shadow"
+awk -F: 'BEGIN { OFS=FS } $1 == "wheel" { $4 = $4 ? $4 ",user" : "user" } { print }' \
+  "$ROOTFS/etc/group" >"$TMP/group"
+cat "$TMP/group" >"$ROOTFS/etc/group"
+ln -s /vfat "$ROOTFS/home/user/vfat"
 
 linux=$TMP/linux-virt
 kernel_version=$(basename "$(find "$linux/lib/modules" -mindepth 1 -maxdepth 1 -type d)")
@@ -197,7 +209,7 @@ copy_module()
 for name in \
   virtio_net virtio-rng af_packet virtio_blk ext4 squashfs overlay \
   fat vfat nls_cp437 nls_utf8 \
-  xhci-hcd xhci-pci usbcore usb-common hid usbhid hid-generic
+  xhci-hcd xhci-pci ehci-hcd ehci-pci uhci-hcd usbcore usb-common hid usbhid hid-generic
 do
   module=$(
     find "$modules" -type f \
@@ -236,14 +248,19 @@ done <"$module_list.unique"
 
 cat >>"$INITRAMFS/init" <<'EOF'
 
-$BB mount -t squashfs -o ro /dev/vda /lower ||
-  fail "cannot mount root.squashfs"
-$BB mount -t ext4 -o noatime,nodiratime /dev/vdb /overlay ||
+$BB mount -t ext4 -o noatime,nodiratime,discard /dev/vdb /overlay ||
   fail "cannot mount overlay.qcow2"
-$BB mkdir -p /overlay/upper /overlay/work
+$BB mkdir -p /overlay/lower /overlay/upper /overlay/work
+$BB mount -t squashfs -o ro /dev/vda /overlay/lower ||
+  fail "cannot mount root.squashfs"
 $BB mount -t overlay overlay \
-  -o lowerdir=/lower,upperdir=/overlay/upper,workdir=/overlay/work /newroot ||
+  -o lowerdir=/overlay/lower,upperdir=/overlay/upper,workdir=/overlay/work \
+  /newroot ||
   fail "cannot mount overlay root"
+
+$BB mkdir -p /newroot/overlay
+$BB mount --move /overlay /newroot/overlay ||
+  fail "cannot expose overlay layers"
 
 for directory in proc sys dev; do
   $BB mount --move "/$directory" "/newroot/$directory" ||
@@ -279,6 +296,7 @@ EOF
 
 echo alpine >"$ROOTFS/etc/hostname"
 echo 'nameserver 10.0.2.3' >"$ROOTFS/etc/resolv.conf"
+echo 'Welcome to Alpine!' >"$ROOTFS/etc/motd"
 
 cat >"$ROOTFS/sbin/boot" <<'EOF'
 #!/bin/sh
@@ -292,8 +310,13 @@ ip link set eth0 up
 udhcpc -i eth0 -s /usr/share/udhcpc/default.script
 
 mkdir -p /vfat
-mount -t vfat -o rw,sync,dirsync /dev/vdd1 /vfat ||
+mount -t vfat -o rw,sync,dirsync,uid=1000,gid=100 /dev/vdd1 /vfat ||
   echo "vfat mount failed"
+
+# mksquashfs -all-root stores the lower layer as root-owned. Copy up the
+# home directory metadata so user can write to it through OverlayFS.
+chown 1000:100 /home/user
+chmod 755 /home/user
 
 if [ -b /dev/vdc ]; then
   swapon /dev/vdc 2>/dev/null || {
@@ -302,26 +325,33 @@ if [ -b /dev/vdc ]; then
   }
 fi
 
-exec setsid sh -c 'exec sh </dev/ttyS0 >/dev/ttyS0 2>&1'
+syslogd
+
+exec setsid sh -c 'exec /bin/login -f user </dev/ttyS0 >/dev/ttyS0 2>&1'
 EOF
 
-rm -f "$ROOTFS/sbin/poweroff" "$ROOTFS/sbin/reboot" "$ROOTFS/sbin/halt"
+rm -f "$ROOTFS/sbin/poweroff" "$ROOTFS/sbin/halt"
 
 cat >"$ROOTFS/sbin/poweroff" <<'EOF'
 #!/bin/sh
+[ "$(id -u)" -eq 0 ] || exec doas "$0" "$@"
 sync
+sync
+umount /vfat
+fstrim /overlay
 exec /bin/busybox poweroff -f
-EOF
-
-cat >"$ROOTFS/sbin/reboot" <<'EOF'
-#!/bin/sh
-sync
-exec /bin/busybox reboot -f
 EOF
 
 cat >"$ROOTFS/sbin/halt" <<'EOF'
 #!/bin/sh
+[ "$(id -u)" -eq 0 ] || exec doas "$0" "$@"
+rm -f /root/.ash_history
+rm -f /home/user/.ash_history
+rm -rf /var/log/*
 sync
+sync
+umount /vfat
+fstrim /overlay
 exec /bin/busybox halt -f
 EOF
 
@@ -329,12 +359,12 @@ chmod 755 \
   "$INITRAMFS/init" \
   "$ROOTFS/sbin/boot" \
   "$ROOTFS/sbin/poweroff" \
-  "$ROOTFS/sbin/reboot" \
   "$ROOTFS/sbin/halt" \
   "$ROOTFS/usr/share/udhcpc/default.script"
 
 mksquashfs "$ROOTFS" "$IMAGES/root.squashfs" \
-  -noappend -all-root -no-xattrs -comp zstd -Xcompression-level 15 -quiet
+  -noappend -all-root -no-xattrs -no-progress \
+  -comp zstd -Xcompression-level 15 -quiet
 
 (
   cd "$INITRAMFS"

@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 cd "$SCRIPT_DIR"
+
 mkdir -p vfat
 
 IMAGES=img
@@ -13,7 +14,7 @@ OVERLAY=$IMAGES/overlay.qcow2
 SWAP=$IMAGES/swap.qcow2
 
 exec qemu-system-x86_64 \
-  -m 256 \
+  -m 128 \
   -machine q35 \
   -kernel "$KERNEL" \
   -initrd "$INITRAMFS" \
@@ -31,5 +32,4 @@ exec qemu-system-x86_64 \
   -device qemu-xhci,id=xhci \
   -device usb-host,vendorid=0x04b4,productid=0x8613 \
   -device usb-host,vendorid=0x16d0,productid=0x0753 \
-  -device usb-host,vendorid=0xf055,productid=0x0002 \
   2>qemu-log.txt

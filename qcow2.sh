@@ -28,44 +28,43 @@ fi
 
 mkdir -p "$IMAGES" vfat
 
-if [ -f "$OVERLAY" ]; then
-  echo "exists: $OVERLAY"
-else
-  overlay_raw=$(mktemp "${TMPDIR:-/tmp}/alpine-overlay.XXXXXX")
-  overlay_tmp=$OVERLAY.tmp.$$
-  trap 'rm -f "$overlay_raw" "$overlay_tmp"' EXIT HUP INT TERM
+for image in "$OVERLAY" "$SWAP"; do
+  if [ -e "$image" ]; then
+    echo "removing $image"
+    rm -f "$image"
+  fi
+done
 
-  echo "creating $OVERLAY (${OVERLAY_SIZE:-8G})"
-  truncate -s "${OVERLAY_SIZE:-8G}" "$overlay_raw"
-  "$mkfs_ext4" -q -F \
-    -O ^has_journal,^resize_inode,^dir_index,sparse_super2,^metadata_csum_seed,^orphan_file,^64bit \
-    -m 0 \
-    -E lazy_itable_init=1,nodiscard \
-    "$overlay_raw"
+overlay_raw=$(mktemp "${TMPDIR:-/tmp}/alpine-overlay.XXXXXX")
+overlay_tmp=$OVERLAY.tmp.$$
+trap 'rm -f "$overlay_raw" "$overlay_tmp"' EXIT HUP INT TERM
 
-  qemu-img convert \
-    -f raw \
-    -O qcow2 \
-    -o cluster_size=64k,lazy_refcounts=on \
-    "$overlay_raw" "$overlay_tmp"
+echo "creating $OVERLAY (${OVERLAY_SIZE:-8G})"
+truncate -s "${OVERLAY_SIZE:-8G}" "$overlay_raw"
+"$mkfs_ext4" -q -F \
+  -O ^has_journal,^resize_inode,^dir_index,sparse_super2,^metadata_csum_seed,^orphan_file,^64bit \
+  -m 0 \
+  -E lazy_itable_init=1,nodiscard \
+  "$overlay_raw"
 
-  mv "$overlay_tmp" "$OVERLAY"
-  rm -f "$overlay_raw"
-  trap - EXIT HUP INT TERM
-fi
+qemu-img convert \
+  -f raw \
+  -O qcow2 \
+  -o cluster_size=64k,lazy_refcounts=on \
+  "$overlay_raw" "$overlay_tmp"
 
-if [ -f "$SWAP" ]; then
-  echo "exists: $SWAP"
-else
-  swap_tmp=$SWAP.tmp.$$
-  trap 'rm -f "$swap_tmp"' EXIT HUP INT TERM
+mv "$overlay_tmp" "$OVERLAY"
+rm -f "$overlay_raw"
+trap - EXIT HUP INT TERM
 
-  echo "creating $SWAP (${SWAP_SIZE:-2G})"
-  qemu-img create -q -f qcow2 "$swap_tmp" "${SWAP_SIZE:-2G}"
-  mv "$swap_tmp" "$SWAP"
+swap_tmp=$SWAP.tmp.$$
+trap 'rm -f "$swap_tmp"' EXIT HUP INT TERM
 
-  trap - EXIT HUP INT TERM
-fi
+echo "creating $SWAP (${SWAP_SIZE:-2G})"
+qemu-img create -q -f qcow2 "$swap_tmp" "${SWAP_SIZE:-2G}"
+mv "$swap_tmp" "$SWAP"
+
+trap - EXIT HUP INT TERM
 
 qemu-img info "$OVERLAY"
-# qemu-img info "$SWAP"
+qemu-img info "$SWAP"

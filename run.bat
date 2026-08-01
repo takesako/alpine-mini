@@ -6,8 +6,8 @@ if not exist "vfat\" mkdir "vfat"
 set "KERNEL=img\vmlinuz-virt"
 set "INITRAMFS=img\initramfs.cpio.gz"
 set "ROOTFS=img\root.squashfs"
-set "OVERLAY=img\overlay.qcow2"
-set "SWAP=img\swap.qcow2"
+set "OVERLAY=disk\overlay.qcow2"
+set "SWAP=disk\swap.qcow2"
 
 qemu-system-x86_64.exe ^
   -m 128 ^
@@ -20,7 +20,7 @@ qemu-system-x86_64.exe ^
   -drive file="%ROOTFS%",if=virtio,format=raw,readonly=on ^
   -drive file="%OVERLAY%",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap ^
   -drive file="%SWAP%",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap ^
-  -drive file=fat:rw:vfat,format=raw,if=virtio,cache=directsync ^
+  -drive file=fat:rw:vfat,format=raw,if=virtio,cache=none ^
   -netdev user,id=n0 ^
   -device virtio-net-pci,netdev=n0 ^
   -object rng-builtin,id=rng0 ^

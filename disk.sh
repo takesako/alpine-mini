@@ -4,9 +4,8 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd)
 cd "$SCRIPT_DIR"
 
-IMAGES=img
-OVERLAY=$IMAGES/overlay.qcow2
-SWAP=$IMAGES/swap.qcow2
+OVERLAY=disk/overlay.qcow2
+SWAP=disk/swap.qcow2
 
 for tool in qemu-img truncate; do
   command -v "$tool" >/dev/null 2>&1 || {
@@ -26,7 +25,7 @@ fi
   exit 1
 }
 
-mkdir -p "$IMAGES" vfat
+mkdir -p disk
 
 for image in "$OVERLAY" "$SWAP"; do
   if [ -e "$image" ]; then

@@ -6,12 +6,11 @@ cd "$SCRIPT_DIR"
 
 mkdir -p vfat
 
-IMAGES=img
-KERNEL=$IMAGES/vmlinuz-virt
-INITRAMFS=$IMAGES/initramfs.cpio.gz
-ROOTFS=$IMAGES/root.squashfs
-OVERLAY=$IMAGES/overlay.qcow2
-SWAP=$IMAGES/swap.qcow2
+KERNEL=img/vmlinuz-virt
+INITRAMFS=img/initramfs.cpio.gz
+ROOTFS=img/root.squashfs
+OVERLAY=disk/overlay.qcow2
+SWAP=disk/swap.qcow2
 
 exec qemu-system-x86_64 \
   -m 128 \
@@ -24,7 +23,7 @@ exec qemu-system-x86_64 \
   -drive file="$ROOTFS",if=virtio,format=raw,readonly=on \
   -drive file="$OVERLAY",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
   -drive file="$SWAP",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
-  -drive file=fat:rw:vfat,format=raw,if=virtio,cache=directsync \
+  -drive file=fat:rw:vfat,format=raw,if=virtio,cache=none \
   -netdev user,id=n0 \
   -device virtio-net-pci,netdev=n0 \
   -object rng-random,filename=/dev/urandom,id=rng0 \

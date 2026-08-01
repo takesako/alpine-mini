@@ -310,7 +310,7 @@ ip link set eth0 up
 udhcpc -i eth0 -s /usr/share/udhcpc/default.script
 
 mkdir -p /vfat
-mount -t vfat -o rw,sync,dirsync,uid=1000,gid=100 /dev/vdd1 /vfat ||
+mount -t vfat -o rw,sync,dirsync,uid=1000,gid=100,noatime,tz=UTC,flush /dev/vdd1 /vfat ||
   echo "vfat mount failed"
 
 # mksquashfs -all-root stores the lower layer as root-owned. Copy up the

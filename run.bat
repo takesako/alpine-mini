@@ -31,12 +31,13 @@ qemu-system-x86_64.exe ^
   -drive file="%SWAP%",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap ^
   -drive file=fat:rw:vfat,format=raw,if=virtio,cache=directsync ^
   -netdev user,id=n0 ^
+  -netdev user,id=n0,hostfwd=tcp:127.0.0.1:7777-:7777,hostfwd=tcp:127.0.0.1:8888-:8888 ^
   -device virtio-net-pci,netdev=n0 ^
   -object rng-builtin,id=rng0 ^
   -device virtio-rng-pci,rng=rng0 ^
   -device qemu-xhci,id=xhci ^
   -device usb-host,vendorid=0x04b4,productid=0x8613 ^
   -device usb-host,vendorid=0x16d0,productid=0x0753 ^
-  2>qemu-log.txt
+  2>qemu-log
 
 endlocal

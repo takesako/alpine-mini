@@ -327,7 +327,8 @@ fi
 
 syslogd
 
-exec setsid sh -c 'exec /bin/login -f user </dev/ttyS0 >/dev/ttyS0 2>&1'
+setsid sh -c 'exec /bin/login -f user </dev/hvc0 >/dev/hvc0 2>&1'
+exec /sbin/poweroff
 EOF
 
 rm -f "$ROOTFS/sbin/poweroff" "$ROOTFS/sbin/halt"

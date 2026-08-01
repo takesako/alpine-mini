@@ -17,8 +17,13 @@ exec qemu-system-x86_64 \
   -machine q35 \
   -kernel "$KERNEL" \
   -initrd "$INITRAMFS" \
-  -append "console=ttyS0 quiet" \
-  -nographic \
+  -append "console=hvc0 quiet" \
+  -display none \
+  -serial none \
+  -chardev stdio,id=console0,mux=on,signal=off \
+  -mon chardev=console0,mode=readline \
+  -device virtio-serial-pci \
+  -device virtconsole,chardev=console0 \
   -no-reboot \
   -drive file="$ROOTFS",if=virtio,format=raw,readonly=on \
   -drive file="$OVERLAY",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \

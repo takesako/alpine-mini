@@ -30,7 +30,6 @@ qemu-system-x86_64.exe ^
   -drive file="%OVERLAY%",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap ^
   -drive file="%SWAP%",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap ^
   -drive file=fat:rw:vfat,format=raw,if=virtio,cache=directsync ^
-  -netdev user,id=n0 ^
   -netdev user,id=n0,hostfwd=tcp:127.0.0.1:7777-:7777,hostfwd=tcp:127.0.0.1:8888-:8888 ^
   -device virtio-net-pci,netdev=n0 ^
   -object rng-builtin,id=rng0 ^

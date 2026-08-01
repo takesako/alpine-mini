@@ -49,7 +49,7 @@ for repository in main community; do
 done
 
 install_order=$TMP/install-order
-roots='alpine-base alpine-keys ssl_client ca-certificates doas'
+roots='alpine-base alpine-keys ssl_client ca-certificates doas busybox-suid'
 
 awk -v roots="$roots" '
   BEGIN { RS = ""; FS = "\n" }
@@ -165,6 +165,22 @@ while read -r applet; do
   [ -e "$ROOTFS/$applet" ] || [ -L "$ROOTFS/$applet" ] ||
     ln -s /bin/busybox "$ROOTFS/$applet"
 done <"$ROOTFS/etc/busybox-paths.d/busybox"
+
+# busybox-suid does not provide a path list. Its install trigger runs
+# "bbsuid --install", which creates these eight links.
+for path in \
+  bin/mount \
+  bin/umount \
+  bin/su \
+  usr/bin/crontab \
+  usr/bin/passwd \
+  usr/bin/traceroute \
+  usr/bin/traceroute6 \
+  usr/bin/vlock
+do
+  rm -f "$ROOTFS/$path"
+  ln -s /bin/bbsuid "$ROOTFS/$path"
+done
 
 # Create the regular user and allow wheel members to use doas without a password.
 mkdir -p "$ROOTFS/etc/doas.d" "$ROOTFS/home/user"
@@ -305,9 +321,13 @@ export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 hostname alpine
 mount -t tmpfs tmpfs /run
 mount -t tmpfs tmpfs /tmp
+
+# Allow members of the all groups to use unprivileged ICMP ping.
+echo '0 2147483647' >/proc/sys/net/ipv4/ping_group_range
+
 ip link set lo up
 ip link set eth0 up
-udhcpc -i eth0 -s /usr/share/udhcpc/default.script
+udhcpc -q -i eth0 -s /usr/share/udhcpc/default.script 2>/dev/null &
 
 mkdir -p /vfat
 mount -t vfat -o rw,sync,dirsync,uid=1000,gid=100,noatime,tz=UTC,flush /dev/vdd1 /vfat ||
@@ -320,7 +340,7 @@ chmod 755 /home/user
 
 if [ -b /dev/vdc ]; then
   swapon /dev/vdc 2>/dev/null || {
-    mkswap /dev/vdc
+    mkswap /dev/vdc >/dev/null
     swapon /dev/vdc
   }
 fi

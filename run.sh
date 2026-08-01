@@ -31,7 +31,7 @@ exec qemu-system-x86_64 \
   -drive file="$ROOTFS",if=virtio,format=raw,readonly=on \
   -drive file="$OVERLAY",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
   -drive file="$SWAP",if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap \
-  -drive file=fat:rw:vfat,format=raw,if=virtio,cache=none \
+  -drive file=fat:rw:vfat,format=raw,if=virtio,cache=directsync \
   -netdev user,id=n0 \
   -device virtio-net-pci,netdev=n0 \
   -object rng-random,filename=/dev/urandom,id=rng0 \
